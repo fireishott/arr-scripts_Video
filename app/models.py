@@ -26,6 +26,7 @@ class ScheduleConfigUpdate(BaseModel):
     lower_quality_action: str = "none"
     concurrent_files: int = 4
     max_downloads_per_artist: int = 5
+    download_auth_failure_limit: int = 5
 
 
 class DownloadRulesUpdate(BaseModel):

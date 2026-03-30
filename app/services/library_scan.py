@@ -140,6 +140,7 @@ async def run_library_scan(state: AppState, artists: list[str], apply_maintenanc
         state.recent_scan_events = []
         state.schedule_debug_logs = []
         state.scan_started_at = datetime.now()
+        state.reset_download_health()
         state.current_artist_started_at = None
         state.current_artist_progress = 0.0
         state.current_artist_completed_steps = 0
@@ -530,6 +531,9 @@ async def inspect_artist_folder(
 
     downloads_added = 0
     if apply_maintenance and state.config.auto_download_missing:
+        if state.downloads_circuit_breaker_tripped:
+            actions.append("Skipped auto-download search because download circuit breaker is active")
+            return {"video_count": len(videos), "issues": issues, "actions": actions, "downloads_added": 0}
         if state.scan_stop_requested:
             return {"video_count": len(videos), "issues": issues, "actions": actions, "downloads_added": 0}
         update_current_action(state, "Searching Missing Videos", f"Finding download candidates for {artist}", 0, 1)
@@ -552,7 +556,7 @@ async def inspect_artist_folder(
                 break
         if download_candidates:
             downloads_added = len(download_candidates)
-            asyncio.create_task(perform_batch_download(state, artist, download_candidates, False))
+            asyncio.create_task(perform_batch_download(state, artist, download_candidates, False, True))
             actions.append(f"Queued background download batch for {downloads_added} missing video(s)")
         advance_artist_step("Searching Missing Videos", f"Queued {downloads_added} download candidate(s) for {artist}", 1, 1)
 

@@ -13,6 +13,8 @@ from app.state import AppState
 
 logger = logging.getLogger("music-video-tools.downloads")
 
+AUTH_FAILURE_TYPES = {"auth_required", "bot_challenge"}
+
 
 def merge_youtube_metrics(video: dict[str, Any], youtube_metadata: dict[str, Any]) -> dict[str, Any]:
     merged = dict(youtube_metadata or {})
@@ -48,7 +50,7 @@ def download_video_with_ytdlp(config: AppConfig, url: str, output_template: str)
         url,
     ]
     attempts: list[list[str]] = [base_command[:]]
-    if config.cookies_file.exists():
+    if config.use_youtube_cookies and config.cookies_file.exists():
         attempts.append(base_command[:1] + ["--cookies", str(config.cookies_file)] + base_command[1:])
     errors: list[str] = []
     for command in attempts:
@@ -77,7 +79,7 @@ def get_youtube_video_details(config: AppConfig, video_id: str) -> dict[str, Any
         f"https://www.youtube.com/watch?v={video_id}",
     ]
     attempts: list[list[str]] = [base_command[:]]
-    if config.cookies_file.exists():
+    if config.use_youtube_cookies and config.cookies_file.exists():
         attempts.append(base_command[:1] + ["--cookies", str(config.cookies_file)] + base_command[1:])
     for command in attempts:
         try:
@@ -89,7 +91,43 @@ def get_youtube_video_details(config: AppConfig, video_id: str) -> dict[str, Any
     return {}
 
 
-async def perform_batch_download(state: AppState, artist: str, videos: list[dict[str, Any]], allow_flagged: bool = False) -> None:
+def classify_download_error(message: str) -> str:
+    normalized = str(message or "").lower()
+    if "sign in to confirm you" in normalized or "not a bot" in normalized:
+        return "bot_challenge"
+    if "--cookies-from-browser" in normalized or "--cookies" in normalized or "missing required data sync id" in normalized:
+        return "auth_required"
+    if "video is unavailable" in normalized or "watch video on youtube" in normalized:
+        return "video_unavailable"
+    if "timed out" in normalized or "timeout" in normalized:
+        return "timeout"
+    if "remote end closed connection" in normalized or "unable to fetch" in normalized or "connection" in normalized:
+        return "network_error"
+    return "other"
+
+
+async def broadcast_download_health(state: AppState) -> None:
+    await state.manager.broadcast(
+        {
+            "type": "download_health",
+            "download_failure_count": state.download_failure_count,
+            "download_failure_breakdown": state.download_failure_breakdown,
+            "download_consecutive_auth_failures": state.download_consecutive_auth_failures,
+            "downloads_degraded": state.downloads_degraded,
+            "downloads_degraded_reason": state.downloads_degraded_reason,
+            "downloads_circuit_breaker_tripped": state.downloads_circuit_breaker_tripped,
+            "last_download_error": state.last_download_error,
+        }
+    )
+
+
+async def perform_batch_download(
+    state: AppState,
+    artist: str,
+    videos: list[dict[str, Any]],
+    allow_flagged: bool = False,
+    scheduled_run: bool = False,
+) -> None:
     async with state.download_lock:
         artist_context = await asyncio.to_thread(get_artist_context, state.config, artist)
         if artist_context:
@@ -104,6 +142,14 @@ async def perform_batch_download(state: AppState, artist: str, videos: list[dict
         for video in filtered_videos:
             if state.download_stopped:
                 await state.manager.broadcast({"type": "download_stopped", "message": "Download cancelled"})
+                break
+            if scheduled_run and state.downloads_circuit_breaker_tripped:
+                await state.manager.broadcast(
+                    {
+                        "type": "download_complete",
+                        "message": "Scheduled auto-downloads paused after repeated YouTube auth failures",
+                    }
+                )
                 break
             processed += 1
             await state.manager.broadcast(
@@ -148,6 +194,7 @@ async def perform_batch_download(state: AppState, artist: str, videos: list[dict
             output_template = str(artist_dir / f"{descriptive_name}.%(ext)s")
             success, message = await asyncio.to_thread(download_video_with_ytdlp, state.config, url, output_template)
             if success:
+                state.download_consecutive_auth_failures = 0
                 await asyncio.to_thread(
                     create_video_nfo,
                     state.config,
@@ -163,8 +210,35 @@ async def perform_batch_download(state: AppState, artist: str, videos: list[dict
                 )
                 logger.debug("Generated NFO for %s with YouTube stats baked in", video.get("id", ""))
                 await state.manager.broadcast({"type": "download_log", "message": f"Downloaded: {song_title}", "level": "success"})
+                await broadcast_download_health(state)
             else:
+                failure_type = classify_download_error(message)
+                state.download_failure_count += 1
+                state.download_failure_breakdown[failure_type] = state.download_failure_breakdown.get(failure_type, 0) + 1
+                state.last_download_error = message
+                if failure_type in AUTH_FAILURE_TYPES:
+                    state.download_consecutive_auth_failures += 1
+                else:
+                    state.download_consecutive_auth_failures = 0
+                if scheduled_run and state.download_consecutive_auth_failures >= state.config.schedule_download_auth_failure_limit:
+                    state.downloads_degraded = True
+                    state.downloads_circuit_breaker_tripped = True
+                    state.downloads_degraded_reason = (
+                        "Repeated YouTube bot/auth challenges paused scheduled auto-downloads. "
+                        "Scanning will continue without downloads until cookies are configured."
+                    )
+                    state.append_schedule_event("Auto-downloads paused after repeated YouTube bot/auth failures")
                 await state.manager.broadcast({"type": "download_log", "message": f"Failed: {song_title} - {message}", "level": "error"})
+                await broadcast_download_health(state)
+                if scheduled_run and state.downloads_circuit_breaker_tripped:
+                    await state.manager.broadcast(
+                        {
+                            "type": "download_log",
+                            "message": "Scheduled auto-downloads paused after repeated YouTube auth failures",
+                            "level": "warning",
+                        }
+                    )
+                    break
             await asyncio.sleep(1)
         if not state.download_stopped:
             await state.manager.broadcast({"type": "download_complete", "message": "Download batch complete"})

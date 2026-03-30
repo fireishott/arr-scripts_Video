@@ -226,10 +226,25 @@
                         </div>
                         <div class="schedule-side-rail">
                             <div class="schedule-summary" id="scheduleSummary">No schedule configured.</div>
+                            <div class="schedule-health-banner is-idle" id="scheduleDownloadHealthBanner">
+                                <div class="schedule-health-title" id="scheduleDownloadHealthTitle">Download health normal</div>
+                                <div class="schedule-health-copy" id="scheduleDownloadHealthCopy">Scheduled auto-downloads are ready.</div>
+                            </div>
+                            <div class="schedule-card">
+                                <div class="schedule-card-label">Download Health</div>
+                                <div class="schedule-card-value schedule-card-value-sm" id="scheduleDownloadFailureCount">0 failures</div>
+                                <div class="schedule-card-note" id="scheduleDownloadHealthNote">No download failures recorded in this run.</div>
+                            </div>
                             <div class="schedule-card">
                                 <div class="schedule-card-label">Issue Tally</div>
                                 <div class="schedule-issue-tally" id="scheduleIssueBreakdown">
                                     <div class="schedule-issue-empty">No findings yet.</div>
+                                </div>
+                            </div>
+                            <div class="schedule-card">
+                                <div class="schedule-card-label">Download Failure Tally</div>
+                                <div class="schedule-issue-tally" id="scheduleDownloadBreakdown">
+                                    <div class="schedule-issue-empty">No download failures yet.</div>
                                 </div>
                             </div>
                         </div>
@@ -289,6 +304,15 @@
                                     <option value="20">20</option>
                                 </select>
                             </label>
+                            <label>Auth failure breaker
+                                <select id="scheduleDownloadAuthFailureLimit">
+                                    <option value="3">3 failures</option>
+                                    <option value="5">5 failures</option>
+                                    <option value="8">8 failures</option>
+                                    <option value="10">10 failures</option>
+                                    <option value="15">15 failures</option>
+                                </select>
+                            </label>
                             <div class="schedule-inline-note">VAAPI device: <span id="scheduleVaapiDevice">/dev/dri/renderD128</span></div>
                         </div>
                     </div>
@@ -318,9 +342,11 @@
                         <label class="checkbox"><input type="checkbox" id="enableYoutubeStats"> Enable YouTube stats</label>
                         <label class="checkbox"><input type="checkbox" id="enableFeaturedArtists"> Enable featured artists</label>
                         <label class="checkbox"><input type="checkbox" id="lidarrEnabled"> Lidarr integration enabled</label>
+                        <label class="checkbox"><input type="checkbox" id="useYoutubeCookies"> Use YouTube cookie file</label>
                     </div>
                     <div class="row">
                         <input type="text" id="lidarrUrl" placeholder="Lidarr URL">
+                        <input type="text" id="cookiesFilePath" placeholder="Cookie file path">
                         <button class="btn primary" id="saveSettingsBtn">Save Settings</button>
                     </div>
                     <div class="logs" id="settingsInfo">Settings are stored in runtime config.</div>

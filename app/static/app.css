@@ -559,6 +559,35 @@ input[type="text"] {
     font-size: 13px;
 }
 
+.schedule-health-banner {
+    padding: 16px 18px;
+    border-radius: 22px;
+    border: 1px solid var(--panel-border);
+    background: rgba(148, 163, 184, 0.12);
+}
+
+.schedule-health-banner.is-warning {
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.14);
+}
+
+.schedule-health-banner.is-danger {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.16);
+}
+
+.schedule-health-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.schedule-health-copy {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 .download-progress { display: none; }
 
 @media (max-width: 800px) {

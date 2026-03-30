@@ -317,7 +317,7 @@ async def start_download_batch(request: DownloadRequest) -> dict[str, object]:
     filtered_videos = request.videos if request.allow_flagged else [video for video in request.videos if not video.get("is_fake")]
     if not filtered_videos:
         raise HTTPException(status_code=400, detail="No eligible videos to download")
-    asyncio.create_task(perform_batch_download(state, request.artist, filtered_videos, request.allow_flagged))
+    asyncio.create_task(perform_batch_download(state, request.artist, filtered_videos, request.allow_flagged, False))
     return {"status": "Download started", "count": len(filtered_videos)}
 
 
@@ -382,7 +382,7 @@ async def perform_missing_downloads(artists: list[str]) -> None:
         results = await search_youtube_for_artist(state.config, artist, 5)
         videos = [video for video in results if not video.get("is_fake")]
         if videos:
-            await perform_batch_download(state, artist, videos[:5], False)
+            await perform_batch_download(state, artist, videos[:5], False, False)
         await asyncio.sleep(1)
 
 
@@ -414,6 +414,7 @@ async def configure_schedule(update: ScheduleConfigUpdate) -> dict[str, str]:
     state.config.schedule_upgrade_lower_quality = normalized_lower_quality_action != "none"
     state.config.schedule_concurrent_files = max(1, min(update.concurrent_files, 16))
     state.config.schedule_max_downloads_per_artist = max(1, min(update.max_downloads_per_artist, 20))
+    state.config.schedule_download_auth_failure_limit = max(1, min(update.download_auth_failure_limit, 20))
     state.update_next_run()
     schedule.clear()
     if state.config.schedule_enabled:
@@ -503,6 +504,9 @@ async def get_config() -> dict[str, object]:
         "enable_musicbrainz": state.config.enable_musicbrainz,
         "enable_youtube_stats": state.config.enable_youtube_stats,
         "enable_featured_artists": state.config.enable_featured_artists,
+        "use_youtube_cookies": state.config.use_youtube_cookies,
+        "cookies_file": str(state.config.cookies_file),
+        "cookies_file_present": state.config.cookies_file.exists(),
         "filter_audio_only": state.config.filter_audio_only,
         "min_video_dimension": state.config.min_video_dimension,
         "min_duration": state.config.min_duration,
@@ -519,6 +523,7 @@ async def save_config(request: Request) -> dict[str, str]:
         "enable_musicbrainz",
         "enable_youtube_stats",
         "enable_featured_artists",
+        "use_youtube_cookies",
         "filter_audio_only",
         "lidarr_enabled",
     ):
@@ -529,6 +534,8 @@ async def save_config(request: Request) -> dict[str, str]:
             setattr(state.config, field, int(payload[field]))
     if "lidarr_url" in payload:
         state.config.lidarr_url = payload["lidarr_url"]
+    if "cookies_file" in payload and payload["cookies_file"]:
+        state.config.cookies_file = Path(str(payload["cookies_file"]))
     save_runtime_config(state.config)
     return {"status": "saved"}
 

@@ -67,6 +67,13 @@ class AppState:
     paused_scan_apply_maintenance: bool = False
     queue_storage: list[dict[str, Any]] = field(default_factory=list)
     download_stopped: bool = False
+    download_failure_count: int = 0
+    download_failure_breakdown: dict[str, int] = field(default_factory=dict)
+    download_consecutive_auth_failures: int = 0
+    downloads_degraded: bool = False
+    downloads_degraded_reason: str = ""
+    downloads_circuit_breaker_tripped: bool = False
+    last_download_error: str = ""
     scan_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     download_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -112,12 +119,23 @@ class AppState:
             "lower_quality_action": self.config.schedule_lower_quality_action,
             "concurrent_files": self.config.schedule_concurrent_files,
             "max_downloads_per_artist": self.config.schedule_max_downloads_per_artist,
+            "download_auth_failure_limit": self.config.schedule_download_auth_failure_limit,
             "vaapi_device": self.config.vaapi_device,
+            "cookies_enabled": self.config.use_youtube_cookies,
+            "cookies_file": str(self.config.cookies_file),
+            "cookies_file_present": self.config.cookies_file.exists(),
             "progress": round(self.scan_progress, 1),
             "current_artist": self.current_scan_artist,
             "issue_count": self.scan_issue_count,
             "issue_breakdown": self.scan_issue_breakdown,
             "action_count": self.scan_action_count,
+            "download_failure_count": self.download_failure_count,
+            "download_failure_breakdown": self.download_failure_breakdown,
+            "download_consecutive_auth_failures": self.download_consecutive_auth_failures,
+            "downloads_degraded": self.downloads_degraded,
+            "downloads_degraded_reason": self.downloads_degraded_reason,
+            "downloads_circuit_breaker_tripped": self.downloads_circuit_breaker_tripped,
+            "last_download_error": self.last_download_error,
             "artists_completed": self.scan_artists_completed,
             "artists_total": self.scan_total_artists,
             "scan_started_at": self.scan_started_at.isoformat() if self.scan_started_at else None,
@@ -171,3 +189,12 @@ class AppState:
     def append_debug_log(self, message: str) -> None:
         self.schedule_debug_logs.append(message)
         self.schedule_debug_logs = self.schedule_debug_logs[-400:]
+
+    def reset_download_health(self) -> None:
+        self.download_failure_count = 0
+        self.download_failure_breakdown = {}
+        self.download_consecutive_auth_failures = 0
+        self.downloads_degraded = False
+        self.downloads_degraded_reason = ""
+        self.downloads_circuit_breaker_tripped = False
+        self.last_download_error = ""

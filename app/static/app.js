@@ -53,6 +53,21 @@ function humanizeIssueType(value) {
         .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function renderBreakdown(containerId, breakdown, emptyMessage) {
+    const container = document.getElementById(containerId);
+    const entries = Object.entries(breakdown || {}).sort((left, right) => right[1] - left[1]);
+    if (!entries.length) {
+        container.innerHTML = `<div class="schedule-issue-empty">${escapeHtml(emptyMessage)}</div>`;
+        return;
+    }
+    container.innerHTML = entries.map(([issue, count]) => `
+        <div class="schedule-issue-row">
+            <div class="schedule-issue-name">${escapeHtml(humanizeIssueType(issue))}</div>
+            <div class="schedule-issue-count">${count}</div>
+        </div>
+    `).join("");
+}
+
 function setStatus(text, variant, detail) {
     const badge = document.getElementById("status-badge");
     badge.className = `status-badge ${variant}`;
@@ -110,18 +125,53 @@ function resetScheduleDebugLog(messages) {
 }
 
 function renderIssueBreakdown(breakdown) {
-    const container = document.getElementById("scheduleIssueBreakdown");
-    const entries = Object.entries(breakdown || {}).sort((left, right) => right[1] - left[1]);
-    if (!entries.length) {
-        container.innerHTML = '<div class="schedule-issue-empty">No findings yet.</div>';
-        return;
+    renderBreakdown("scheduleIssueBreakdown", breakdown, "No findings yet.");
+}
+
+function renderDownloadBreakdown(breakdown) {
+    renderBreakdown("scheduleDownloadBreakdown", breakdown, "No download failures yet.");
+}
+
+function renderDownloadHealth(payload) {
+    const failureCount = Number(payload.download_failure_count || 0);
+    const authFailures = Number(payload.download_consecutive_auth_failures || 0);
+    const degraded = !!payload.downloads_degraded;
+    const breaker = !!payload.downloads_circuit_breaker_tripped;
+    const cookiesEnabled = !!payload.cookies_enabled;
+    const cookiesPresent = !!payload.cookies_file_present;
+    const banner = document.getElementById("scheduleDownloadHealthBanner");
+    const title = document.getElementById("scheduleDownloadHealthTitle");
+    const copy = document.getElementById("scheduleDownloadHealthCopy");
+    const value = document.getElementById("scheduleDownloadFailureCount");
+    const note = document.getElementById("scheduleDownloadHealthNote");
+
+    value.textContent = `${failureCount} failure${failureCount === 1 ? "" : "s"}`;
+    if (breaker) {
+        banner.className = "schedule-health-banner is-danger";
+        title.textContent = "Scheduled downloads paused";
+        copy.textContent = payload.downloads_degraded_reason || "Repeated YouTube auth failures tripped the circuit breaker.";
+        note.textContent = `Auth failure streak: ${authFailures}. Further scheduled downloads are paused for this run.`;
+    } else if (degraded || failureCount > 0) {
+        banner.className = "schedule-health-banner is-warning";
+        title.textContent = "Downloads degraded";
+        copy.textContent = payload.downloads_degraded_reason || "The scheduler is seeing download failures and may need YouTube cookies.";
+        note.textContent = cookiesEnabled
+            ? cookiesPresent
+                ? "Cookie file is enabled and present, but YouTube is still challenging some downloads."
+                : "Cookie file is enabled but missing on disk."
+            : "Cookie file support is currently turned off.";
+    } else {
+        banner.className = "schedule-health-banner is-idle";
+        title.textContent = "Download health normal";
+        copy.textContent = cookiesEnabled
+            ? cookiesPresent
+                ? "Scheduled downloads have cookie support available."
+                : "Scheduled downloads are ready, but no cookie file is present yet."
+            : "Scheduled downloads are ready. Cookie support is turned off.";
+        note.textContent = "No download failures recorded in this run.";
     }
-    container.innerHTML = entries.map(([issue, count]) => `
-        <div class="schedule-issue-row">
-            <div class="schedule-issue-name">${escapeHtml(humanizeIssueType(issue))}</div>
-            <div class="schedule-issue-count">${count}</div>
-        </div>
-    `).join("");
+
+    renderDownloadBreakdown(payload.download_failure_breakdown || {});
 }
 
 function renderScheduleProgressBars(payload) {
@@ -219,6 +269,7 @@ async function loadScheduleStatus() {
         document.getElementById("scheduleLowerQualityAction").value = payload.lower_quality_action || (payload.upgrade_lower_quality ? "quarantine" : "none");
         document.getElementById("scheduleConcurrentFiles").value = String(payload.concurrent_files);
         document.getElementById("scheduleMaxDownloadsPerArtist").value = String(payload.max_downloads_per_artist);
+        document.getElementById("scheduleDownloadAuthFailureLimit").value = String(payload.download_auth_failure_limit || 5);
     }
     document.getElementById("scheduleVaapiDevice").textContent = payload.vaapi_device || "/dev/dri/renderD128";
     renderScheduleStatus(payload);
@@ -316,6 +367,13 @@ function renderScheduleStatus(payload) {
     if (payload.remove_videos_without_metadata) summaryParts.push("Videos without metadata will be removed.");
     if (payload.lower_quality_action === "quarantine") summaryParts.push("Lower-quality bundles will be moved into a root _quarantine folder.");
     if (payload.lower_quality_action === "delete") summaryParts.push("Lower-quality bundles will be deleted during maintenance runs.");
+    if (payload.downloads_circuit_breaker_tripped) summaryParts.push("Scheduled downloads are paused because repeated YouTube auth failures tripped the breaker.");
+    else if (payload.downloads_degraded) summaryParts.push("Scheduled downloads are degraded and may need a valid YouTube cookie file.");
+    summaryParts.push(payload.cookies_enabled
+        ? payload.cookies_file_present
+            ? "Cookie file support is enabled."
+            : "Cookie file support is enabled, but the configured file is missing."
+        : "Cookie file support is disabled.");
     if (running) {
         summaryParts.push(`Current action: ${currentActionLabel}.`);
         summaryParts.push(`Current artist: ${currentArtist}.`);
@@ -327,6 +385,7 @@ function renderScheduleStatus(payload) {
     document.getElementById("scheduleSummary").textContent = summaryParts.join(" ");
     renderScheduleProgressBars(payload);
     renderIssueBreakdown(payload.issue_breakdown);
+    renderDownloadHealth(payload);
 }
 
 async function loadConfig() {
@@ -334,8 +393,13 @@ async function loadConfig() {
     document.getElementById("enableMusicBrainz").checked = !!payload.enable_musicbrainz;
     document.getElementById("enableYoutubeStats").checked = !!payload.enable_youtube_stats;
     document.getElementById("enableFeaturedArtists").checked = !!payload.enable_featured_artists;
+    document.getElementById("useYoutubeCookies").checked = !!payload.use_youtube_cookies;
+    document.getElementById("cookiesFilePath").value = payload.cookies_file || "";
     document.getElementById("lidarrEnabled").checked = !!payload.lidarr_enabled;
     document.getElementById("lidarrUrl").value = payload.lidarr_url || "";
+    document.getElementById("settingsInfo").textContent = payload.cookies_file_present
+        ? `Settings are stored in runtime config. Cookie file detected at ${payload.cookies_file || "configured path"}.`
+        : "Settings are stored in runtime config. No cookie file detected at the configured path.";
 }
 
 async function loadSystemStats() {
@@ -367,6 +431,17 @@ function connectWebSocket() {
             setStatus("Downloading", "status-downloading", data.current || "Working");
         } else if (data.type === "download_log") {
             debugLog(data.message);
+        } else if (data.type === "download_health") {
+            renderScheduleStatus({
+                ...window.__lastSchedulePayload,
+                download_failure_count: data.download_failure_count ?? window.__lastSchedulePayload?.download_failure_count ?? 0,
+                download_failure_breakdown: data.download_failure_breakdown || window.__lastSchedulePayload?.download_failure_breakdown || {},
+                download_consecutive_auth_failures: data.download_consecutive_auth_failures ?? window.__lastSchedulePayload?.download_consecutive_auth_failures ?? 0,
+                downloads_degraded: data.downloads_degraded ?? window.__lastSchedulePayload?.downloads_degraded ?? false,
+                downloads_degraded_reason: data.downloads_degraded_reason ?? window.__lastSchedulePayload?.downloads_degraded_reason ?? "",
+                downloads_circuit_breaker_tripped: data.downloads_circuit_breaker_tripped ?? window.__lastSchedulePayload?.downloads_circuit_breaker_tripped ?? false,
+                last_download_error: data.last_download_error ?? window.__lastSchedulePayload?.last_download_error ?? "",
+            });
         } else if (data.type === "download_complete") {
             debugLog(data.message || "Download complete");
             setStatus("Idle", "status-idle", "Ready");
@@ -557,6 +632,7 @@ async function saveSchedule() {
                 lower_quality_action: document.getElementById("scheduleLowerQualityAction").value,
                 concurrent_files: Number(document.getElementById("scheduleConcurrentFiles").value),
                 max_downloads_per_artist: Number(document.getElementById("scheduleMaxDownloadsPerArtist").value),
+                download_auth_failure_limit: Number(document.getElementById("scheduleDownloadAuthFailureLimit").value),
             }),
         });
         scheduleFormDirty = false;
@@ -578,9 +654,12 @@ async function saveSettings() {
             enable_featured_artists: document.getElementById("enableFeaturedArtists").checked,
             lidarr_enabled: document.getElementById("lidarrEnabled").checked,
             lidarr_url: document.getElementById("lidarrUrl").value.trim(),
+            use_youtube_cookies: document.getElementById("useYoutubeCookies").checked,
+            cookies_file: document.getElementById("cookiesFilePath").value.trim(),
         }),
     });
     debugLog("Settings saved");
+    await loadConfig();
 }
 
 async function scanAllArtists() {
@@ -631,6 +710,7 @@ async function initialize() {
         "scheduleLowerQualityAction",
         "scheduleConcurrentFiles",
         "scheduleMaxDownloadsPerArtist",
+        "scheduleDownloadAuthFailureLimit",
     ].forEach((id) => {
         const element = document.getElementById(id);
         const eventName = element?.tagName === "INPUT" ? "input" : "change";

@@ -27,6 +27,7 @@ class AppConfig(BaseModel):
     enable_musicbrainz: bool = Field(default=False)
     enable_youtube_stats: bool = Field(default=True)
     enable_featured_artists: bool = Field(default=True)
+    use_youtube_cookies: bool = Field(default=True)
     auto_download_missing: bool = Field(default=True)
     auto_update_stats: bool = Field(default=True)
     stats_update_interval_seconds: int = Field(default=7 * 24 * 3600)
@@ -43,6 +44,7 @@ class AppConfig(BaseModel):
     schedule_lower_quality_action: str = Field(default="none")
     schedule_concurrent_files: int = Field(default=4)
     schedule_max_downloads_per_artist: int = Field(default=5)
+    schedule_download_auth_failure_limit: int = Field(default=5)
     vaapi_device: str = Field(default="/dev/dri/renderD128")
 
     @property
@@ -77,6 +79,7 @@ def load_settings() -> AppConfig:
         enable_musicbrainz=_env_bool("ENABLE_MUSICBRAINZ", False),
         enable_youtube_stats=_env_bool("ENABLE_YOUTUBE_STATS", True),
         enable_featured_artists=_env_bool("ENABLE_FEATURED_ARTISTS", True),
+        use_youtube_cookies=_env_bool("USE_YOUTUBE_COOKIES", True),
         auto_download_missing=_env_bool("AUTO_DOWNLOAD_MISSING", True),
         auto_update_stats=_env_bool("AUTO_UPDATE_STATS", True),
         stats_update_interval_seconds=int(os.getenv("STATS_UPDATE_INTERVAL_SECONDS", str(7 * 24 * 3600))),
@@ -93,6 +96,7 @@ def load_settings() -> AppConfig:
         schedule_lower_quality_action=os.getenv("SCHEDULE_LOWER_QUALITY_ACTION", "none"),
         schedule_concurrent_files=int(os.getenv("SCHEDULE_CONCURRENT_FILES", "4")),
         schedule_max_downloads_per_artist=int(os.getenv("SCHEDULE_MAX_DOWNLOADS_PER_ARTIST", "5")),
+        schedule_download_auth_failure_limit=int(os.getenv("SCHEDULE_DOWNLOAD_AUTH_FAILURE_LIMIT", "5")),
         vaapi_device=os.getenv("VAAPI_DEVICE", "/dev/dri/renderD128"),
     )
     ensure_directories(config)
